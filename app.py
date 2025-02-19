@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import StreamingResponse
 import cv2
 import poseestimationmodule as pm
 import numpy as np
@@ -7,49 +8,39 @@ import time
 import threading
 
 app = FastAPI()
+cap = cv2.VideoCapture(0)
+detector = pm.poseDetector()
+dir = 0
+count = 0
+final_count = ''
+streaming = False
+processing_thread = None
 
-# Global variable to store final count
-final_count = 0
+frame_lock = threading.Lock()
+current_frame = None
 
-def pose_detection():
-    global final_count
 
-    cap = cv2.VideoCapture(0)
-    detector = pm.poseDetector()
-    dir = 0
-    count = 0
+def process_video():
+    global count, dir, final_count, streaming, current_frame
 
-    # 10-second Countdown Before Starting Detection
+    # Countdown before starting detection
     start_time = time.time()
     while time.time() - start_time < 10:
         ret, frame = cap.read()
-        if not ret:
-            break
-
+        if not ret or not streaming:
+            return
         elapsed_time = int(time.time() - start_time)
         remaining_time = 10 - elapsed_time
+        cv2.putText(frame, f"Starting in {remaining_time} sec", (220, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255),
+                    2)
+        with frame_lock:
+            current_frame = frame
+        time.sleep(1)
 
-        # Display Countdown Text
-        text = f"Starting in {remaining_time} sec"
-        cv2.putText(frame, text, (220, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-
-        # Draw Progress Bar at the Bottom
-        bar_x, bar_y, bar_width, bar_height = 100, 460, 400, 20
-        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height), (200, 200, 200), 2)
-        fill_width = int((elapsed_time / 10) * bar_width)
-        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_width, bar_y + bar_height), (0, 255, 0), -1)
-
-        cv2.imshow("Pose Detection", frame)
-        if cv2.waitKey(50) & 0xFF == ord('q'):
-            cap.release()
-            cv2.destroyAllWindows()
-            return
-
-    # Pose Detection with Real-Time Display
+    # Start push-up detection
     last_change_time = time.time()
     last_count = count
-
-    while True:
+    while streaming:
         success, frame = cap.read()
         if not success:
             break
@@ -71,37 +62,62 @@ def pose_detection():
                     count += 0.5
                     dir = 0
 
-        # Reset inactivity timer if count changes
         if count != last_count:
             last_change_time = time.time()
             last_count = count
 
-        # Exit if no change in 10 seconds
         if time.time() - last_change_time > 10:
-            print("No movement detected for 10 seconds. Exiting...")
+            print("No activity detected for 10 seconds. Exiting...")
             break
 
-        # Display Count on Screen
-        text = str(int(floor(count)))
-        cv2.putText(frame, text, (300, 50), cv2.FONT_HERSHEY_DUPLEX, 2, (0, 0, 0), 2)
-
-        cv2.imshow("Pose Detection", frame)
-        if cv2.waitKey(50) & 0xFF == ord('q'):
-            break
-
-    final_count = int(floor(count))  # Store Final Count
-    cap.release()
-    cv2.destroyAllWindows()
-
-
-@app.get("/")
-def home():
-    return {"message": "Pose Detection API is running!"}
+        final_count = str(int(floor(count)))
+        cv2.putText(frame, final_count, (300, 50), cv2.FONT_HERSHEY_DUPLEX, 2, (0, 255, 0), 2)
+        with frame_lock:
+            current_frame = frame
+        time.sleep(0.05)
 
 
 @app.get("/start")
 def start_detection():
-    detection_thread = threading.Thread(target=pose_detection)
-    detection_thread.start()
-    detection_thread.join()  # Wait for completion
-    return {"final_count": final_count}
+    global streaming, processing_thread
+    if not streaming:
+        streaming = True
+        processing_thread = threading.Thread(target=process_video, daemon=True)
+        processing_thread.start()
+    return {"message": "Push-up detection started"}
+
+
+def generate_frames():
+    while True:
+        with frame_lock:
+            if current_frame is None:
+                continue
+            success, buffer = cv2.imencode('.jpg', current_frame)
+            if not success:
+                continue
+            frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+
+@app.get("/video_feed")
+def video_feed():
+    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.websocket("/pushup_count")
+async def pushup_count(websocket: WebSocket):
+    await websocket.accept()
+    global final_count
+    while streaming:
+        await websocket.send_text(final_count)
+        time.sleep(1)
+    await websocket.send_text("Final Count: " + final_count)
+    await websocket.close()
+
+
+@app.get("/stop")
+def stop():
+    global streaming
+    streaming = False
+    return {"message": "Detection stopped", "final_count": final_count}
+
