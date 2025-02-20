@@ -1,0 +1,129 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Detection</title>
+</head>
+<body>
+    <h1>Real-time Pose Detection</h1>
+    <video id="video" autoplay></video>
+    <canvas id="canvas"></canvas>
+    <p>Count: <span id="count">0</span></p>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const countDisplay = document.getElementById("count");
+
+        async function sendFrame() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = canvas.toDataURL("image/jpeg").split(",")[1];
+
+            try {
+                const response = await fetch("http://localhost:8000/process_frame/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: imageData }),
+                });
+
+                const data = await response.json();
+                countDisplay.innerText = data.count;
+
+                let img = new Image();
+                img.src = "data:image/jpeg;base64," + data.frame;
+                img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+
+        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+            video.srcObject = stream;
+            setInterval(sendFrame, 100);
+        });
+    </script>
+</body>
+</html> -->
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pose Detection</title>
+</head>
+<body>
+    <h1>Real-time Pose Detection</h1>
+    <video id="video" autoplay></video>
+    <canvas id="canvas"></canvas>
+    <p>Count: <span id="count">0</span></p>
+    <p id="finalMessage" style="display:none; color:red;">Session Ended. Final Count: <span id="finalCount"></span></p>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const countDisplay = document.getElementById("count");
+        const finalMessage = document.getElementById("finalMessage");
+        const finalCountDisplay = document.getElementById("finalCount");
+
+        let intervalId;
+
+        async function sendFrame() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = canvas.toDataURL("image/jpeg").split(",")[1];
+
+            try {
+                const response = await fetch("http://localhost:8000/process_frame/", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ image: imageData }),
+                });
+
+                const data = await response.json();
+                countDisplay.innerText = data.count;
+
+                if (data.final) {
+                    clearInterval(intervalId);  // Stop sending frames
+                    video.srcObject.getTracks().forEach(track => track.stop()); // Stop webcam
+                    finalMessage.style.display = "block";
+                    finalCountDisplay.innerText = data.count;
+                } else {
+                    let img = new Image();
+                    img.src = "data:image/jpeg;base64," + data.frame;
+                    img.onload = () => ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                }
+
+            } catch (error) {
+                console.error("Error:", error);
+            }
+        }
+
+        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+            video.srcObject = stream;
+            intervalId = setInterval(sendFrame, 100);
+        });
+        window.onload = async () => {
+            try {
+                await fetch("http://127.0.0.1:8000/reset_session/", {
+                    method: "POST",
+                });
+                console.log("Session reset successfully");
+            } catch (error) {
+                console.error("Error resetting session:", error);
+            }
+        };
+        
+    </script>
+</body>
+</html>

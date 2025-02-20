@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Pose Estimation</title>
+</head>
+<body>
+    <h1>Pose Estimation</h1>
+    <video id="video" autoplay></video>
+    <canvas id="canvas"></canvas>
+    <img id="processedFrame" alt="Processed Video">
+    <h2>Count: <span id="count">0</span></h2>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const processedFrame = document.getElementById('processedFrame');
+        const countDisplay = document.getElementById('count');
+
+        // Access user camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(error => console.error("Error accessing webcam:", error));
+
+        function sendFrame() {
+            const ctx = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg');
+
+            fetch('/process_video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ frame: dataUrl })
+            })
+            .then(response => response.json())
+            .then(data => {
+                processedFrame.src = data.frame;
+                countDisplay.innerText = data.count;
+            })
+            .catch(error => console.error("Error sending frame:", error));
+        }
+
+        // Send frame every 100ms (adjust if needed)
+        setInterval(sendFrame, 100);
+    </script>
+</body>
+</html>
+
