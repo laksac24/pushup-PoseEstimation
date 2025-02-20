@@ -126,7 +126,7 @@ async def upload_frame(file: UploadFile = File(...), session_id: str = "default"
 
         if angle2:
             if 160 < angle2 < 190:
-                per = np.interp(angle, (90, 150), (0, 100))
+                per = np.interp(angle, (100, 160), (0, 100))
                 if per == 0 and session["dir"] == 0:
                     session["count"] += 0.5
                     session["dir"] = 1
