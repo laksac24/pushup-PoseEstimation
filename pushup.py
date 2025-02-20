@@ -57,7 +57,7 @@ while True:
 
             if angle2:
                 if 160 < angle2 < 190:
-                    per = np.interp(angle, (90, 150), (0, 100))
+                    per = np.interp(angle, (70, 145), (0, 100))
                     if per == 0:
                         if dir == 0:
                             count += 0.5
